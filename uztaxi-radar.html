@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>UzTaxi Radar</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap">
+<style>
+:root{--bg:#0b0f19;--panel:#0f172a;--card:#111a2e;--line:#1e293b;--mut:#94a3b8;--amb:#fbbf24;--grn:#34d399;--red:#fb7185}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:#fff;overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+.app{max-width:448px;margin:0 auto;background:var(--panel);min-height:100vh;display:flex;flex-direction:column}
+#map{height:34vh;width:100%}
+.mapwrap{position:relative}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(15,23,42,.8)!important;color:#cbd5e1!important}
+.leaflet-control-attribution a{color:#fcd34d!important}
+.overlay{position:absolute;z-index:500;pointer-events:none}
+.chip{background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:12px;padding:6px 10px;font-size:11px;font-weight:600;color:#e2e8f0}
+.btn{border:0;border-radius:10px;font:inherit;font-weight:700;cursor:pointer}
+.gps{position:absolute;z-index:500;right:10px;bottom:14px;background:rgba(15,23,42,.95);color:var(--amb);border:1px solid #334155;border-radius:14px;padding:9px 12px;font-size:12px;font-weight:800;font-family:inherit}
+.panel{padding:12px;background:#0f1a30;border-bottom:1px solid var(--line);display:grid;gap:8px;margin-top:-8px;border-radius:20px 20px 0 0;position:relative;z-index:600}
+.row{display:flex;align-items:center;gap:10px;background:#1a2540;border:1px solid #2b3a57;border-radius:12px;padding:8px 10px}
+.row.to{border-color:rgba(251,191,36,.5)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.row small{display:block;font-size:10px;color:var(--mut);font-weight:600}
+.row input,.row select{width:100%;background:transparent;border:0;outline:0;color:#fff;font:inherit;font-size:12px;font-weight:700;padding:0}
+.row select option{color:#000}
+.row .grow{flex:1;min-width:0}
+.sm{font-size:11px;padding:6px 10px;background:#334155;color:#e2e8f0}
+.go{background:var(--amb);color:#0b0f19}
+.seg{display:flex;gap:6px}
+.seg button{flex:1;padding:7px 4px;font-size:11px;border-radius:12px;background:#1a2540;color:var(--mut);border:1px solid #2b3a57;font-family:inherit;font-weight:700}
+.seg button.on{color:#fff;background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.6)}
+.list{padding:10px 12px 28px;display:grid;gap:8px}
+.head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--mut)}
+#msg{font-size:11px;color:#fcd34d;background:rgba(251,191,36,.08);border-radius:10px;padding:7px 10px;display:none}
+.card{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:11px;cursor:pointer;transition:transform .12s}
+.card:active{transform:scale(.98)}
+.card.best{border-color:rgba(52,211,153,.6)}
+.badge{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-weight:800;font-size:15px;flex:none}
+.nm{font-weight:800;font-size:14px}
+.sub{font-size:10.5px;color:var(--mut);margin-top:2px}
+.price{font-weight:800;font-size:14px;color:var(--amb);text-align:right;white-space:nowrap}
+.best .price{color:var(--grn)}
+.tag{font-size:9px;font-weight:800;background:var(--grn);color:#052e1f;border-radius:99px;padding:2px 6px;margin-left:6px}
+details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:12px}
+summary{font-weight:700;cursor:pointer}
+.form{display:grid;gap:8px;margin-top:10px}
+.form select,.form input{background:#1a2540;border:1px solid #2b3a57;border-radius:10px;color:#fff;padding:9px;font:inherit;font-size:13px}
+.note{font-size:10.5px;color:var(--mut);line-height:1.45}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div class="overlay" style="top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:8px">
+      <span class="chip" id="hint">Xaritadan boradigan joyni bosing</span>
+      <span class="chip" id="routeBadge" style="background:var(--amb);color:#0b0f19;border:0;font-weight:800">0 km</span>
+    </div>
+    <button class="gps" onclick="locateUser()">Turgan joyim</button>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <div class="grow"><small>Shahar</small>
+        <select id="citySel" onchange="changeCity(this.value)"></select></div>
+    </div>
+    <div class="row">
+      <span class="dot" style="background:var(--grn)"></span>
+      <div class="grow"><small>Qayerdan</small><input id="fromInput" readonly value="Aniqlanmoqda..."></div>
+      <button class="btn sm" id="btnModeA" onclick="setMode('A')">O‘zgartirish</button>
+    </div>
+    <div class="row to">
+      <span class="dot" style="background:var(--amb)"></span>
+      <div class="grow"><small style="color:var(--amb)">Qayerga</small>
+        <input id="toInput" placeholder="Masalan: Navruz Mall" onkeydown="if(event.key==='Enter')searchPlace()"></div>
+      <button class="btn sm go" onclick="searchPlace()">Topish</button>
+    </div>
+    <div class="seg" id="demandSeg">
+      <button data-m="normal" onclick="setDemand('normal')">Oddiy vaqt</button>
+      <button data-m="busy" onclick="setDemand('busy')">Tig‘iz (pik)</button>
+      <button data-m="rain" onclick="setDemand('rain')">Yomg‘ir / probka</button>
+    </div>
+  </div>
+
+  <div class="list">
+    <div class="head"><span>Narx ustiga bossangiz, ilova ochiladi</span><span id="timeLabel" style="color:var(--grn)">~0 daq</span></div>
+    <div id="msg"></div>
+    <div id="taxiContainer" style="display:grid;gap:8px"></div>
+
+    <details>
+      <summary>Haqiqiy narxni kiriting (kalibrlash)</summary>
+      <div class="form">
+        <select id="realTaxi"></select>
+        <input id="realPrice" type="number" inputmode="numeric" placeholder="Safar narxi, so‘m (masalan 24000)">
+        <button class="btn go" style="padding:10px" onclick="submitReal()">Saqlash</button>
+        <p class="note">Joriy marshrut (A–B) va tig‘izlik bilan birga saqlanadi. 5 tadan ortiq narx to‘plangach, shu taksi va shahar uchun diapazon haqiqiy ma’lumotdan hisoblanadi.</p>
+      </div>
+    </details>
+
+    <p class="note">Narxlar taxminiy. Aniq narx faqat taksi ilovasida, buyurtma berishdan oldin ko‘rinadi. Marshrut vaqti tirbandliksiz hisoblanadi, shuning uchun u tig‘izlik rejimi bilan tuzatiladi.</p>
+  </div>
+</div>
+
+<script>
+/* ============ SOZLAMALAR ============ */
+// Backend bo'lsa (POST {API_URL}/samples), kiritilgan narxlar serverga ham yuboriladi.
+const API_URL = '';
+
+// Koeffitsientlar BOSHLANG'ICH taxmin. Haqiqiy narxlar bilan kalibrlang (pastga qarang).
+// includedKm: minimal narxga kiruvchi masofa, band: kalibrlanmagan holatdagi ± xatolik.
+const TAXIS = [
+  {id:'wb',    name:'WB Taxi',          color:'#a21caf', ink:'#fff', short:'WB', start:3500, includedKm:1.5, perKm:1500, perMin:90,  band:.20, sens:.9,
+   link:{kind:'open', url:()=>'https://taxi.wildberries.uz/'}},
+  {id:'yalla', name:'Yalla Taxi',       color:'#dc2626', ink:'#fff', short:'Y',  start:4000, includedKm:1.5, perKm:1600, perMin:100, band:.18, sens:.85,
+   link:{kind:'open', url:()=>'https://play.google.com/store/apps/details?id=uz.yalla.client'}},
+  {id:'fasten',name:'Fasten',           color:'#e11d48', ink:'#fff', short:'F',  start:4000, includedKm:1.5, perKm:1650, perMin:100, band:.20, sens:1.0,
+   link:{kind:'open', url:()=>'https://play.google.com/store/search?q=Fasten%20taxi&c=apps'}},
+  {id:'royal', name:'Royal Taxi 1187',  color:'#2563eb', ink:'#facc15', short:'R', start:4500, includedKm:2,   perKm:1700, perMin:100, band:.15, sens:.8,
+   link:{kind:'call', url:()=>'tel:1187'}},
+  {id:'uklon', name:'Uklon',            color:'#facc15', ink:'#111',  short:'U',  start:4500, includedKm:1.5, perKm:1750, perMin:110, band:.22, sens:1.05,
+   link:{kind:'open', url:()=>'https://uz.uklon.eu/'}},
+  {id:'yandex',name:'Yandex Go',        color:'#fde047', ink:'#111',  short:'Y',  start:4500, includedKm:1.5, perKm:1850, perMin:130, band:.25, sens:1.25,
+   link:{kind:'route', url:(a,b)=>`https://3.redirect.appmetrica.yandex.com/route?start-lat=${a.lat}&start-lon=${a.lng}&end-lat=${b.lat}&end-lon=${b.lng}&appmetrica_tracking_id=1178268795219780156`}},
+  {id:'mytaxi',name:'MyTaxi',           color:'#f97316', ink:'#fff',  short:'M',  start:5000, includedKm:1.5, perKm:1950, perMin:130, band:.22, sens:1.15,
+   link:{kind:'open', url:()=>'https://mytaxi.uz/'}}
+];
+
+// k: shahar tarif koeffitsienti (1 = boshlang'ich). Kalibrlash shahar+taksi bo'yicha alohida ishlaydi.
+const CITIES = {
+  tashkent: {name:'Toshkent',  lat:41.3111, lng:69.2797, k:1.0},
+  samarkand:{name:'Samarqand', lat:39.6542, lng:66.9597, k:0.9},
+  andijan:  {name:'Andijon',   lat:40.7821, lng:72.3442, k:0.85},
+  fergana:  {name:'Farg‘ona',  lat:40.3864, lng:71.7864, k:0.85},
+  namangan: {name:'Namangan',  lat:40.9983, lng:71.6726, k:0.85},
+  bukhara:  {name:'Buxoro',    lat:39.7747, lng:64.4286, k:0.9}
+};
+
+// surge: narx ko'payishi, traffic: OSRM vaqtiga tirbandlik ko'paytmasi
+const DEMAND = {normal:{surge:1,traffic:1}, busy:{surge:1.25,traffic:1.3}, rain:{surge:1.55,traffic:1.6}};
+const MIN_SAMPLES = 5;
+const STORE_KEY = 'uztaxi_samples_v1';
+
+/* ============ HOLAT ============ */
+const $ = id => document.getElementById(id);
+const tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0f172a'); tg.setBackgroundColor('#0b0f19'); } catch(e){} }
+const haptic = () => { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred('light'); } catch(e){} };
+
+const state = { city:'tashkent', A:null, B:null, km:3, min:7, mode:'B', demand:'normal', approx:false };
+const h = new Date().getHours();
+if ((h>=8&&h<=9)||(h>=17&&h<=19)) state.demand = 'busy';
+
+/* ============ XARITA ============ */
+const map = L.map('map', {zoomControl:false});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  {maxZoom:19, attribution:'© OpenStreetMap, © CARTO'}).addTo(map);
+map.attributionControl.setPrefix(false);
+const mkIcon = (c,s) => L.divIcon({className:'', iconSize:[s,s], iconAnchor:[s/2,s/2],
+  html:`<div style="background:${c};width:${s}px;height:${s}px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 10px rgba(0,0,0,.6)"></div>`});
+const markerA = L.marker([0,0], {icon:mkIcon('#10b981',18), draggable:true}).addTo(map);
+const markerB = L.marker([0,0], {icon:mkIcon('#f59e0b',20), draggable:true}).addTo(map);
+let routeLine = null;
+
+/* ============ YORDAMCHI ============ */
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+function showMsg(t){ const m=$('msg'); m.textContent=t||''; m.style.display=t?'block':'none'; }
+const round500 = v => Math.round(v/500)*500;
+const fmt = v => v.toLocaleString('ru-RU');
+
+// Nominatim: sekundiga 1 so'rov. Barcha so'rovlar navbatga qo'yiladi.
+let nomiChain = Promise.resolve();
+function nominatim(url){
+  const p = nomiChain.then(()=>fetch(url).then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); }));
+  nomiChain = p.catch(()=>{}).then(()=>new Promise(r=>setTimeout(r,1100)));
+  return p;
+}
+const geoSeq = {fromInput:0, toInput:0};
+async function reverseGeocode(lat, lng, inputId){
+  const my = ++geoSeq[inputId];
+  const fallback = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  try{
+    const d = await nominatim(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=uz`);
+    if (my !== geoSeq[inputId]) return;           // eskirgan javob
+    const a = d.address || {};
+    $(inputId).value = a.amenity || a.shop || a.road || a.suburb || a.city || a.town || fallback;
+  }catch(e){ if (my === geoSeq[inputId]) $(inputId).value = fallback; }
+}
+
+/* ============ MARSHRUT (poyga holatisiz) ============ */
+let routeCtl = null, routeSeq = 0;
+async function calculateRoute(){
+  const my = ++routeSeq;
+  if (routeCtl) routeCtl.abort();
+  routeCtl = new AbortController();
+  const {A,B} = state;
+  try{
+    const url = `https://router.project-osrm.org/route/v1/driving/${A.lng},${A.lat};${B.lng},${B.lat}?overview=full&geometries=geojson`;
+    const r = await fetch(url, {signal:routeCtl.signal});
+    const d = await r.json();
+    if (my !== routeSeq) return;
+    if (!d.routes || !d.routes.length) throw new Error('no route');
+    const rt = d.routes[0];
+    state.km = Math.max(0.5, +(rt.distance/1000).toFixed(1));
+    state.min = Math.max(2, Math.round(rt.duration/60));
+    state.approx = false;
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.geoJSON(rt.geometry, {style:{color:'#f59e0b', weight:5, opacity:.9}}).addTo(map);
+  }catch(e){
+    if (e.name === 'AbortError' || my !== routeSeq) return;
+    const d = map.distance([A.lat,A.lng],[B.lat,B.lng])/1000;
+    state.km = Math.max(0.5, +(d*1.35).toFixed(1));
+    state.min = Math.max(2, Math.round(state.km*2.2));
+    state.approx = true;
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  }
+  render();
+}
+const calcDebounced = debounce(calculateRoute, 350);
+
+/* ============ NARX MODELI + KALIBRLASH ============ */
+const loadSamples = () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch(e){ return []; } };
+const saveSamples = s => { try { localStorage.setItem(STORE_KEY, JSON.stringify(s.slice(-500))); } catch(e){} };
+
+function rawPrice(t){
+  const d = DEMAND[state.demand];
+  const eff = 1 + (d.surge-1)*t.sens;
+  const minutes = state.min * d.traffic;                 // tirbandlik tuzatmasi
+  const extraKm = Math.max(0, state.km - t.includedKm);  // minimalga kiruvchi km ayriladi
+  return (t.start + extraKm*t.perKm + minutes*t.perMin) * eff * CITIES[state.city].k;
+}
+const pct = (arr,p) => arr[Math.min(arr.length-1, Math.floor(p*(arr.length-1)))];
+
+function calibration(t){
+  const rs = loadSamples().filter(s=>s.city===state.city && s.taxi===t.id && s.raw>0)
+                          .map(s=>s.real/s.raw).sort((a,b)=>a-b);
+  if (rs.length < MIN_SAMPLES) return {f:1, lo:1-t.band, hi:1+t.band, n:rs.length, ok:false};
+  const f = pct(rs,.5);
+  return {f, lo:Math.min(.97, pct(rs,.1)/f), hi:Math.max(1.03, pct(rs,.9)/f), n:rs.length, ok:true};
+}
+
+function estimate(t){
+  const raw = rawPrice(t), c = calibration(t), mid = raw*c.f;
+  return {raw, mid, lo:round500(mid*c.lo), hi:round500(mid*c.hi), c};
+}
+
+/* ============ KARTALAR ============ */
+function openTaxi(t){
+  haptic();
+  const url = t.link.url(state.A, state.B);
+  if (t.link.kind === 'call') { location.href = url; return; }
+  if (tg && tg.openLink) tg.openLink(url); else window.open(url, '_blank');
+}
+
+function render(){
+  $('routeBadge').textContent = `${state.km} km`;
+  $('timeLabel').textContent = `~${Math.round(state.min*DEMAND[state.demand].traffic)} daqiqa`;
+  showMsg(state.approx ? 'Marshrut serveri javob bermadi: masofa to‘g‘ri chiziq bo‘yicha taxminan hisoblandi.' : '');
+
+  const list = TAXIS.map(t => ({t, e:estimate(t)})).sort((a,b)=>a.e.mid-b.e.mid);
+  const box = $('taxiContainer'); box.innerHTML = '';
+  list.forEach(({t,e}, i) => {
+    const card = document.createElement('div');
+    card.className = 'card' + (i===0 ? ' best' : '');
+    card.onclick = () => openTaxi(t);
+    const basis = e.c.ok ? `${e.c.n} ta real narx asosida` : `kalibrlanmagan, ±${Math.round(t.band*100)}%`;
+    const kind = t.link.kind==='route' ? 'marshrut uzatiladi' : t.link.kind==='call' ? 'qo‘ng‘iroq' : 'manzilni ilovada kiriting';
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;gap:11px;min-width:0">
+        <div class="badge" style="background:${t.color};color:${t.ink}">${t.short}</div>
+        <div style="min-width:0"><div class="nm">${t.name}${i===0?'<span class="tag">Eng past taxmin</span>':''}</div>
+          <div class="sub">${kind}</div></div>
+      </div>
+      <div><div class="price">${fmt(e.lo)} – ${fmt(e.hi)} <span style="font-size:11px">so‘m</span></div>
+        <div class="sub" style="text-align:right">${basis}</div></div>`;
+    box.appendChild(card);
+  });
+}
+
+/* ============ FOYDALANUVCHI NARXI ============ */
+$('realTaxi').innerHTML = TAXIS.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+async function submitReal(){
+  const real = parseInt($('realPrice').value, 10);
+  if (!(real >= 3000 && real <= 1000000)) { showMsg('Narxni to‘g‘ri kiriting (3 000 – 1 000 000 so‘m).'); return; }
+  const t = TAXIS.find(x=>x.id===$('realTaxi').value);
+  const s = {ts:Date.now(), city:state.city, taxi:t.id, raw:rawPrice(t), real,
+             km:state.km, min:state.min, demand:state.demand};
+  const all = loadSamples(); all.push(s); saveSamples(all);
+  if (API_URL) { try { await fetch(API_URL+'/samples', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(s)}); } catch(e){} }
+  $('realPrice').value = ''; haptic(); render();
+  showMsg('Saqlandi. Rahmat, narxlar aniqroq bo‘lib boradi.');
+  setTimeout(()=>showMsg(state.approx ? undefined : ''), 3000);
+}
+
+/* ============ O'ZGARISHLAR ============ */
+function setDemand(m){
+  haptic(); state.demand = m;
+  document.querySelectorAll('#demandSeg button').forEach(b=>b.classList.toggle('on', b.dataset.m===m));
+  render();
+}
+function setMode(m){
+  haptic(); state.mode = m;
+  const b = $('btnModeA');
+  b.textContent = m==='A' ? 'Xaritadan bosing...' : 'O‘zgartirish';
+  b.className = m==='A' ? 'btn sm go' : 'btn sm';
+}
+function setA(ll, geo=true){ state.A={lat:ll.lat,lng:ll.lng}; markerA.setLatLng(ll); if(geo) reverseGeocode(ll.lat,ll.lng,'fromInput'); }
+function setB(ll, geo=true){ state.B={lat:ll.lat,lng:ll.lng}; markerB.setLatLng(ll); if(geo) reverseGeocode(ll.lat,ll.lng,'toInput'); }
+
+function changeCity(id){
+  state.city = id; const c = CITIES[id];
+  setA({lat:c.lat, lng:c.lng}); setB({lat:c.lat+.012, lng:c.lng+.012});
+  map.setView([c.lat,c.lng], 13); calculateRoute();
+}
+
+map.on('click', e => {
+  haptic();
+  if (state.mode==='A'){ setA(e.latlng); setMode('B'); } else setB(e.latlng);
+  calcDebounced();
+});
+markerA.on('dragend', e => { setA(e.target.getLatLng()); calcDebounced(); });
+markerB.on('dragend', e => { setB(e.target.getLatLng()); calcDebounced(); });
+
+async function searchPlace(){
+  haptic();
+  const q = $('toInput').value.trim(); if(!q) return;
+  const c = CITIES[state.city];
+  const vb = `${c.lng-.4},${c.lat+.3},${c.lng+.4},${c.lat-.3}`;   // tanlangan shahar atrofi
+  try{
+    const d = await nominatim(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=uz&viewbox=${vb}&q=${encodeURIComponent(q)}`);
+    if (d && d.length){
+      setB({lat:+d[0].lat, lng:+d[0].lon}, false);
+      map.fitBounds([[state.A.lat,state.A.lng],[state.B.lat,state.B.lng]], {padding:[35,35]});
+      calculateRoute();
+    } else showMsg('Manzil topilmadi. Boshqacha yozing yoki xaritadan bosing.');
+  }catch(e){ showMsg('Qidiruv ishlamadi. Xaritadan bosib belgilang.'); }
+}
+
+/* ============ GPS (Telegram + brauzer) ============ */
+function browserGPS(){
+  return new Promise(res => {
+    if (!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude}), ()=>res(null), {enableHighAccuracy:true, timeout:6000});
+  });
+}
+function getGPS(){
+  return new Promise(res => {
+    const LM = tg && tg.LocationManager;
+    if (LM && tg.isVersionAtLeast && tg.isVersionAtLeast('8.0')){
+      LM.init(() => {
+        if (!LM.isLocationAvailable) return browserGPS().then(res);
+        LM.getLocation(l => l ? res({lat:l.latitude,lng:l.longitude}) : browserGPS().then(res));
+      });
+    } else browserGPS().then(res);
+  });
+}
+async function locateUser(){
+  haptic(); $('fromInput').value = 'GPS aniqlanmoqda...';
+  const p = await getGPS();
+  if (!p){
+    showMsg('GPS ruxsati berilmadi. Yuqoridan shaharni tanlang yoki "O‘zgartirish" orqali A nuqtani xaritadan belgilang.');
+    reverseGeocode(state.A.lat, state.A.lng, 'fromInput'); return;
+  }
+  // eng yaqin shahar (60 km ichida) avtomatik tanlanadi
+  let best=null, bd=1e9;
+  for (const [id,c] of Object.entries(CITIES)){ const d=map.distance([p.lat,p.lng],[c.lat,c.lng]); if(d<bd){bd=d;best=id;} }
+  if (bd < 60000){ state.city = best; $('citySel').value = best; }
+  else showMsg('Siz ro‘yxatdagi shaharlardan uzoqdasiz: narxlar tanlangan shahar tarifi bo‘yicha hisoblanadi.');
+  setA(p);
+  if (map.distance([p.lat,p.lng],[state.B.lat,state.B.lng]) > 50000) setB({lat:p.lat+.012, lng:p.lng+.012});
+  map.setView([p.lat,p.lng], 14); calculateRoute();
+}
+
+/* ============ ISHGA TUSHIRISH ============ */
+$('citySel').innerHTML = Object.entries(CITIES).map(([id,c])=>`<option value="${id}">${c.name}</option>`).join('');
+$('citySel').value = state.city;
+const c0 = CITIES[state.city];
+map.setView([c0.lat,c0.lng], 13);
+setA({lat:c0.lat, lng:c0.lng}); setB({lat:c0.lat+.012, lng:c0.lng+.012});
+setDemand(state.demand);
+calculateRoute();
+locateUser();
+</script>
+</body>
+</html>
